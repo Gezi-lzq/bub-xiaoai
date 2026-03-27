@@ -151,6 +151,18 @@ class XiaoAiMessageListener:
 
     async def _login(self) -> None:
         if self.config.cookie:
+            cookies = _parse_cookie_string(self.config.cookie)
+            service_token = cookies.get("serviceToken", "")
+            user_id = cookies.get("userId", "")
+            device_id = cookies.get("deviceId", "")
+            if service_token and user_id:
+                account = MiAccount(self.session, "", "", None)
+                account.token = {
+                    "userId": user_id,
+                    "deviceId": device_id,
+                    "micoapi": ["", service_token],
+                }
+                self._mina_service = MiNAService(account)
             return
         account = MiAccount(
             self.session,
@@ -168,7 +180,7 @@ class XiaoAiMessageListener:
         self._miio_service = MiIOService(account)
 
     async def _init_hardware(self) -> None:
-        if self.config.cookie:
+        if self._mina_service is None:
             return
 
         hardware_data = await self.mina_service.device_list()
@@ -203,7 +215,8 @@ class XiaoAiMessageListener:
             cookies = _parse_cookie_string(self.config.cookie)
             if "deviceId" not in cookies:
                 raise RuntimeError("cookie must include deviceId")
-            self.device_id = cookies["deviceId"]
+            if not self.device_id:
+                self.device_id = cookies["deviceId"]
             return self.config.cookie
 
         if not self.config.mi_token_home.exists():
@@ -273,6 +286,8 @@ class XiaoAiMessageListener:
         try:
             await self.mina_service.text_to_speech(self.device_id, text)
         except Exception:
+            if self._miio_service is None:
+                raise
             await miio_command(
                 self.miio_service, self.config.mi_did, f"{self.tts_command} {text}"
             )
